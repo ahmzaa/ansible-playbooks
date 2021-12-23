@@ -2,27 +2,34 @@
 - hosts: piCluster
   become: yes
   tasks:
-    - name: Auth local SSH Keys
-      ansible.posix.authorized_key:
-        user: ahmza
-        state: present
-        key: "{{ item }}"
-      with_file:
-        - /home/ahmza/.ssh/id_rsa.pub
-        - ./pi_rsa.pub
 
-    - name: Copy SSH Pi Intercoms Private Key
-      copy:
-        src: ./pi_rsa
-        dest: /home/ahmza/.ssh/id_rsa
-        mode: '0600'
+    - name: Configure SSH
+      block:
+        - name: Auth local SSH Keys
+          ansible.posix.authorized_key:
+            user: ahmza
+            state: present
+            key: "{{ item }}"
+          with_file:
+            - /home/ahmza/.ssh/id_rsa.pub
+            - ./pi_rsa.pub
+
+        - name: Copy SSH Pi Intercoms Private Key
+          copy:
+            src: ./pi_rsa
+            dest: /home/ahmza/.ssh/id_rsa
+            mode: '0600'
+            owner: ahmza
+            group: ahmza
 
 
-    - name: Copy SSH Pi Intercoms Public Key
-      copy:
-        src: ./pi_rsa.pub
-        dest: /home/ahmza/.ssh/id_rsa.pub
-        mode: '0644'
+        - name: Copy SSH Pi Intercoms Public Key
+          copy:
+            src: ./pi_rsa.pub
+            dest: /home/ahmza/.ssh/id_rsa.pub
+            mode: '0644'
+            owner: ahmza
+            group: ahmza
 
     - name: Check for any updates and install them
       apt:
@@ -37,43 +44,69 @@
           - python3-pip
           - vim
           - curl
+          - cifs-utils
+
 
     - name: Check Docker is installed
       shell: "docker --version"
       register: docker_version
-    
+
+    - name: Install Docker
+      block:
+
+        - name: Download Docker script
+          command: curl -fsSL https://get.docker.com -o get-docker.sh
+
+        - name: Run Docker install script
+          command: sudo sh get-docker.sh
+
+        - name: Enable docker service
+          service:
+            name: "{{ item }}"
+            enabled: true
+            state: started
+          loop:
+            - docker
+            - containerd
+
+        - name: Add user to docker group
+          user:
+            name: ahmza
+            groups: docker
+            append: yes
+
+      when: docker_version.stdout.find('Docker version')
+
+
     - name: check Docker compose is installed
       shell: "docker-compose --version"
       register: dc_version
-
-    - name: Download Docker script
-      command: curl -fsSL https://get.docker.com -o get-docker.sh
-      when: docker_version.stdout.find('Docker version')
-
-    - name: Run Docker install script
-      command: sudo sh get-docker.sh
-      when: docker_version.stdout.find('Docker version')
 
     - name: Install docker compose
       command: sudo pip3 -v install docker-compose
       when: dc_version.stdout.find('docker-compose version')
 
-    - name: Enable docker service
-      service:
-        name: "{{ item }}"
-        enabled: true
-        state: started
+    - name: Create mount points
+      file:
+        path: '/mnt/nfs/{{ item }}'
+        state: directory
       loop:
-        - docker
-        - containerd
-      when: docker_version.stdout.find('Docker version')
+        - iso
 
-    - name: Add user to docker group
-      user:
-        name: ahmza
-        groups: docker
-        append: yes
-      when: docker_version.stdout.find('Docker version')
+    - name: Copy CIFS
+      copy:
+        src: ./.smb
+        dest: /etc/.smb
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Add NFS mounts
+      lineinfile:
+        path: /etc/fstab
+        line: '//10.10.10.5/{{ item }} /mnt/nfs/{{ item }} cifs credentials=/etc/.smb,file_mode=0755,dir_mode=0755 0 0'
+      loop:
+        - iso
 
     - name: wait for network on boot
       command: raspi-config nonint do_boot_wait 0
