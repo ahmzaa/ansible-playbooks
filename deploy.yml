@@ -14,6 +14,9 @@
             - /home/ahmza/.ssh/id_rsa.pub
             - ./pi_rsa.pub
 
+        - name: import ssh keys from gh
+          shell: "ssh-import-id-gh 4hmz4"
+
         - name: Copy SSH Pi Intercoms Private Key
           copy:
             src: ./pi_rsa
