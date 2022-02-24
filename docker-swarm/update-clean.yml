@@ -1,0 +1,17 @@
+---
+- hosts: piCluster
+  become: yes
+  tasks:
+
+    - name: updates
+      apt:
+        update-cache: true
+        upgrade: dist
+
+    - name: Clean Docker
+    # This will clean any unused images, volumes etc ...
+      command: docker system prune --all --force --volumes
+
+    - name: Reboot
+      reboot:
+
